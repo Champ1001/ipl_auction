@@ -7,7 +7,7 @@ export const getSocket = () => socket
 export const initSocket = (token) => {
   if (socket) socket.disconnect()
 
-  socket = io(import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000', {
+  socket = io('https://ipl-auction-odi1.onrender.com',  {
     auth: { token },
     transports: ['websocket'],
     reconnection: true,
