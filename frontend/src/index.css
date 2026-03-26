@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-ipl-dark text-white font-body antialiased;
+    background-image:
+      radial-gradient(ellipse at 20% 50%, rgba(0,52,120,0.15) 0%, transparent 60%),
+      radial-gradient(ellipse at 80% 20%, rgba(245,166,35,0.08) 0%, transparent 50%);
+    min-height: 100vh;
+  }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { @apply bg-ipl-dark; }
+  ::-webkit-scrollbar-thumb { @apply bg-ipl-border rounded-full; }
+}
+
+@layer components {
+  .card {
+    @apply bg-ipl-card border border-ipl-border rounded-2xl;
+  }
+
+  .btn-primary {
+    @apply bg-ipl-gold text-ipl-dark font-bold px-6 py-3 rounded-xl
+           hover:bg-yellow-400 active:scale-95 transition-all duration-150
+           disabled:opacity-40 disabled:cursor-not-allowed disabled:scale-100;
+  }
+
+  .btn-secondary {
+    @apply bg-ipl-blue text-white font-semibold px-6 py-3 rounded-xl
+           hover:bg-blue-700 active:scale-95 transition-all duration-150
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply border border-ipl-border text-gray-300 font-semibold px-6 py-3 rounded-xl
+           hover:border-gray-400 hover:text-white active:scale-95 transition-all duration-150;
+  }
+
+  .input {
+    @apply bg-gray-900 border border-ipl-border rounded-xl px-4 py-3 w-full
+           text-white placeholder-gray-500 focus:outline-none focus:border-ipl-gold
+           transition-colors duration-150;
+  }
+
+  .badge {
+    @apply text-xs font-semibold px-2.5 py-1 rounded-full;
+  }
+}
