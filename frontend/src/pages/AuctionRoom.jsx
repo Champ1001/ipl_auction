@@ -18,7 +18,7 @@ export default function AuctionRoom() {
   const { roomId } = useParams()
   const { user, token } = useAuth()
   const navigate = useNavigate()
-
+  const [teams, setTeams] = useState([])
   // Room & auction state
   const [room, setRoom]               = useState(null)
   const [players, setPlayers]         = useState([])
@@ -62,6 +62,7 @@ export default function AuctionRoom() {
       setTotalPlayers(data.totalPlayers)
       setTimeLeft(10)
       setSoldAnnouncement(null)
+      loadRoom() 
       loadPlayers()
     })
 
@@ -81,6 +82,7 @@ export default function AuctionRoom() {
       loadMyTeam()
       loadPlayers()
       setTimeout(() => setSoldAnnouncement(null), 3000)
+      loadTeams()
     })
 
     socket.on('player:unsold', ({ player }) => {
@@ -128,7 +130,12 @@ export default function AuctionRoom() {
       setMyTeam(data.team)
     } catch {}
   }
-
+  const loadTeams = async () => {
+    try {
+      const { data } = await api.get(`/teams/${roomId}`)
+      setTeams(data.teams)
+    } catch {}
+  }
   const loadLeaderboard = async () => {
     try {
       const { data } = await api.get(`/leaderboard/${roomId}`)
@@ -319,7 +326,13 @@ export default function AuctionRoom() {
             </div>
           )}
 
-          {activeTab === 'squad'       && <Squad team={myTeam} />}
+          {activeTab === 'squad' && (
+            <div className="space-y-6">
+              {teams.map((team) => (
+                <Squad key={team._id} team={team} isMyTeam={team.owner?._id === user?._id} />
+              ))}
+            </div>
+          )}
           {activeTab === 'players'     && <PlayersGrid players={players} />}
           {activeTab === 'leaderboard' && <Leaderboard leaderboard={leaderboard} mode={room.mode} myUserId={user._id} />}
         </div>
