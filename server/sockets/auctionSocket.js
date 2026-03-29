@@ -5,7 +5,6 @@ const Bid = require('../models/Bid');
 
 // In-memory auction timers per room: { roomId: { timer, timeLeft } }
 const auctionTimers = {};
-
 /**
  * Build and emit real-time leaderboard for a room
  */
@@ -212,7 +211,9 @@ const registerSocketHandlers = (io, socket) => {
       if (!room || room.status !== 'active') {
         return socket.emit('bid:error', { message: 'Auction is not active' });
       }
-
+      if (room.currentBidder && room.currentBidder.toString() === userId.toString()) {
+        return socket.emit('bid:error', { message: '⚠️ You are already the highest bidder! Wait for someone else to bid.' });
+      }
       // Validate bid amount
       if (amount <= room.currentBid) {
         return socket.emit('bid:error', {
