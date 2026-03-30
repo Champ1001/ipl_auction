@@ -36,8 +36,10 @@ exports.createRoom = async (req, res) => {
     });
 
     // Seed default players for this room
-    const playerDocs = DEFAULT_PLAYERS.map((p) => ({ ...p, room: room._id }));
-    await Player.insertMany(playerDocs);
+// Seed default players for this room
+    const shuffled = [...DEFAULT_PLAYERS].sort(() => Math.random() - 0.5)
+    const playerDocs = shuffled.map((p) => ({ ...p, room: room._id }))
+    await Player.insertMany(playerDocs)
 
     // Create the host's team
     await Team.create({

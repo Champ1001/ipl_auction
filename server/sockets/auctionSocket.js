@@ -79,23 +79,23 @@ const moveToNextPlayer = async (io, roomId) => {
 /**
  * Start the 10-second countdown timer for a player
  */
-const startAuctionTimer = (io, roomId, player) => {
-  let timeLeft = 10;
+const startAuctionTimer = (io, roomId, player, duration = 10) => {
+  let timeLeft = duration * 5; // Store in units of 0.2s (10 sec = 50 units)
 
-  io.to(roomId).emit('auction:timer', { timeLeft });
+  io.to(roomId).emit('auction:timer', { timeLeft: timeLeft / 5 });
 
   const timer = setInterval(async () => {
     timeLeft--;
-    io.to(roomId).emit('auction:timer', { timeLeft });
+    io.to(roomId).emit('auction:timer', { timeLeft: timeLeft / 5 });
 
     if (timeLeft <= 0) {
       clearInterval(timer);
       delete auctionTimers[roomId];
       await handlePlayerSold(io, roomId, player._id);
     }
-  }, 1000);
+  }, 200); // runs every 0.2 seconds
 
-  auctionTimers[roomId] = { timer, timeLeft };
+  auctionTimers[roomId] = { timer, timeLeft }; // timeLeft in 0.2s units
 };
 
 /**
@@ -226,7 +226,10 @@ const registerSocketHandlers = (io, socket) => {
       if (!team || team.budget < amount) {
         return socket.emit('bid:error', { message: 'Insufficient budget!' });
       }
-
+      // In bid:place handler
+      if (auctionTimers[roomId] && auctionTimers[roomId].timeLeft <= 1) {
+        return socket.emit('bid:error', { message: '⏱️ Bidding closed!' });
+      }
       // Update current bid in room
       room.currentBid = amount;
       room.currentBidder = userId;
