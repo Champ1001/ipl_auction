@@ -321,6 +321,7 @@ export default function AuctionRoom() {
                   onBid={handleBid}
                   disabled={!canBid}
                   myTeamName={myTeam?.name}
+                  timeLeft={timeLeft}
                 />
               )}
             </div>
