@@ -80,22 +80,22 @@ const moveToNextPlayer = async (io, roomId) => {
  * Start the 10-second countdown timer for a player
  */
 const startAuctionTimer = (io, roomId, player, duration = 10) => {
-  let timeLeft = duration * 5; // Store in units of 0.2s (10 sec = 50 units)
+  let timeLeft = duration;
 
-  io.to(roomId).emit('auction:timer', { timeLeft: timeLeft / 5 });
+  io.to(roomId).emit('auction:timer', { timeLeft });
 
   const timer = setInterval(async () => {
     timeLeft--;
-    io.to(roomId).emit('auction:timer', { timeLeft: timeLeft / 5 });
+    io.to(roomId).emit('auction:timer', { timeLeft });
 
     if (timeLeft <= 0) {
       clearInterval(timer);
       delete auctionTimers[roomId];
       await handlePlayerSold(io, roomId, player._id);
     }
-  }, 200); // runs every 0.2 seconds
+  }, 1000);
 
-  auctionTimers[roomId] = { timer, timeLeft }; // timeLeft in 0.2s units
+  auctionTimers[roomId] = { timer, timeLeft };
 };
 
 /**
