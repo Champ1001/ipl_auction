@@ -19,6 +19,12 @@ const teamSchema = new mongoose.Schema(
 
     // Total fantasy points (used in "Points Based" mode leaderboard)
     totalPoints: { type: Number, default: 0 },
+  // Squad composition tracking
+    overseasCount: { type: Number, default: 0 },
+    bowlerCount:   { type: Number, default: 0 },
+    allRounderCount: { type: Number, default: 0 },
+    wkCount:       { type: Number, default: 0 },
+    batsmanCount:  { type: Number, default: 0 },
   },
   { timestamps: true }
 );

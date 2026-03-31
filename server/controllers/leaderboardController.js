@@ -1,10 +1,5 @@
-const Team = require('../models/Team');
-const Room = require('../models/Room');
+const { calculateTop12Points, getSquadRequirements, getTop12 } = require('../utils/squadRules');
 
-/**
- * GET /api/leaderboard/:roomId
- * Get sorted leaderboard for a room (Points Based mode only)
- */
 exports.getLeaderboard = async (req, res) => {
   try {
     const room = await Room.findById(req.params.roomId);
@@ -16,17 +11,27 @@ exports.getLeaderboard = async (req, res) => {
 
     const teams = await Team.find({ room: req.params.roomId })
       .populate('owner', 'name')
-      .populate('playersBought.player', 'name points')
-      .sort({ totalPoints: -1 }); // Sort by points descending
+      .populate('playersBought.player')
+      .sort({ totalPoints: -1 });
 
-    const leaderboard = teams.map((team, idx) => ({
-      rank: idx + 1,
-      teamName: team.name,
-      ownerName: team.owner?.name,
-      totalPoints: team.totalPoints,
-      budget: team.budget,
-      playerCount: team.playersBought.length,
-    }));
+    const leaderboard = teams.map((team, idx) => {
+      const players = team.playersBought.map(pb => pb.player).filter(Boolean);
+      const top12   = getTop12(players);
+      const reqs    = getSquadRequirements(players);
+
+      return {
+        rank: idx + 1,
+        teamName: team.name,
+        ownerName: team.owner?.name,
+        totalPoints: team.totalPoints,       // top 12 points
+        top12Players: top12.map(p => p.name),
+        budget: team.budget,
+        playerCount: players.length,
+        overseas: reqs.overseas,
+        requirements: reqs.requirements,
+        meetsMinimum: reqs.meetsMinimum,
+      };
+    });
 
     res.json({ leaderboard });
   } catch (error) {

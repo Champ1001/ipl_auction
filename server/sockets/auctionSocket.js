@@ -2,7 +2,7 @@ const Room = require('../models/Room');
 const Player = require('../models/Player');
 const Team = require('../models/Team');
 const Bid = require('../models/Bid');
-
+const { canBuyPlayer, calculateTop12Points, isOverseas } = require('../utils/squadRules');
 // In-memory auction timers per room: { roomId: { timer, timeLeft } }
 const auctionTimers = {};
 /**
@@ -108,7 +108,6 @@ const handlePlayerSold = async (io, roomId, playerId) => {
   const player = await Player.findById(playerId);
   if (!player || player.sold) return;
 
-  // If no one bid, player goes unsold (skip)
   if (!room.currentBidder) {
     io.to(roomId).emit('player:unsold', { player, message: `${player.name} went unsold` });
     room.currentPlayerIndex++;
@@ -117,23 +116,47 @@ const handlePlayerSold = async (io, roomId, playerId) => {
     return;
   }
 
-  // Mark player sold
   player.sold = true;
   player.soldPrice = room.currentBid;
 
-  // Find winning team
-  const team = await Team.findOne({ owner: room.currentBidder, room: roomId });
+  const team = await Team.findOne({ owner: room.currentBidder, room: roomId })
+    .populate('playersBought.player');
+
   if (team) {
+    // Get all players this team has bought so far
+    const boughtPlayers = team.playersBought.map(pb => pb.player);
+
+    // Check squad rules (only in points mode)
+    if (room.mode === 'points') {
+      const check = canBuyPlayer(team, player, boughtPlayers);
+      if (!check.allowed) {
+        // Player can't be bought — notify and skip
+        io.to(roomId).emit('player:rulefail', {
+          player,
+          team: team.name,
+          reason: check.reason,
+        });
+        toast && console.log(`Squad rule blocked: ${check.reason}`);
+        // Still mark as sold but don't add to team — treat as unsold
+        player.sold = false;
+        await player.save();
+        room.currentPlayerIndex++;
+        await room.save();
+        await moveToNextPlayer(io, roomId);
+        return;
+      }
+    }
+
     player.soldTo = team._id;
     await player.save();
 
-    // Deduct budget from team
     team.budget -= room.currentBid;
     team.playersBought.push({ player: player._id, pricePaid: room.currentBid });
 
-    // Add points to team if "points" mode
+    // Recalculate top 12 points for points mode
     if (room.mode === 'points') {
-      team.totalPoints += player.points;
+      const allBoughtPlayers = [...boughtPlayers, player];
+      team.totalPoints = calculateTop12Points(allBoughtPlayers);
     }
 
     await team.save();
@@ -148,12 +171,10 @@ const handlePlayerSold = async (io, roomId, playerId) => {
     team: team ? { name: team.name, budget: team.budget } : null,
   });
 
-  // Emit updated leaderboard in points mode
   if (room.mode === 'points') {
     await emitLeaderboard(io, roomId);
   }
 
-  // Advance to next player
   room.currentPlayerIndex++;
   await room.save();
   setTimeout(() => moveToNextPlayer(io, roomId), 2000);

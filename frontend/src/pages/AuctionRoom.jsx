@@ -89,7 +89,9 @@ export default function AuctionRoom() {
       toast(`❌ ${player.name} went unsold`, 'warning')
       loadPlayers()
     })
-
+    socket.on('player:rulefail', ({ player, team, reason }) => {
+      toast(`${reason} — ${player.name} not added to ${team}`, 'error')
+    })
     socket.on('leaderboard:update', ({ leaderboard: lb }) => setLeaderboard(lb))
 
     socket.on('team:update', () => loadMyTeam())
