@@ -2,12 +2,11 @@ const Room = require('../models/Room');
 const Player = require('../models/Player');
 const Team = require('../models/Team');
 const Bid = require('../models/Bid');
-const { canBuyPlayer, calculateTop12Points, isOverseas } = require('../utils/squadRules');
-// In-memory auction timers per room: { roomId: { timer, timeLeft } }
+const { canBuyPlayer, calculateTop12Points } = require('../utils/squadRules');
+
+const bidLocks = {};
 const auctionTimers = {};
-/**
- * Build and emit real-time leaderboard for a room
- */
+
 const emitLeaderboard = async (io, roomId) => {
   const teams = await Team.find({ room: roomId })
     .populate('owner', 'name')
@@ -25,12 +24,7 @@ const emitLeaderboard = async (io, roomId) => {
   io.to(roomId).emit('leaderboard:update', { leaderboard });
 };
 
-/**
- * Move auction to the next unsold player.
- * If all players are sold, end the auction.
- */
 const moveToNextPlayer = async (io, roomId) => {
-  // Clear any existing timer
   if (auctionTimers[roomId]) {
     clearInterval(auctionTimers[roomId].timer);
     delete auctionTimers[roomId];
@@ -42,13 +36,11 @@ const moveToNextPlayer = async (io, roomId) => {
   const players = await Player.find({ room: roomId });
   let nextIndex = room.currentPlayerIndex;
 
-  // Find next unsold player
   while (nextIndex < players.length && players[nextIndex].sold) {
     nextIndex++;
   }
 
   if (nextIndex >= players.length) {
-    // All players auctioned — end auction
     room.status = 'completed';
     await room.save();
     io.to(roomId).emit('auction:ended', { message: '🏆 Auction completed!' });
@@ -57,7 +49,7 @@ const moveToNextPlayer = async (io, roomId) => {
   }
 
   room.currentPlayerIndex = nextIndex;
-  room.currentBid = players[nextIndex].basePrice;
+  room.currentBid = players[nextIndex].basePrice; // first bid = base price
   room.currentBidder = null;
   room.currentBidderName = '';
   await room.save();
@@ -72,16 +64,11 @@ const moveToNextPlayer = async (io, roomId) => {
     totalPlayers: players.length,
   });
 
-  // Start countdown timer
   startAuctionTimer(io, roomId, currentPlayer);
 };
 
-/**
- * Start the 10-second countdown timer for a player
- */
 const startAuctionTimer = (io, roomId, player, duration = 10) => {
   let timeLeft = duration;
-
   io.to(roomId).emit('auction:timer', { timeLeft });
 
   const timer = setInterval(async () => {
@@ -98,9 +85,6 @@ const startAuctionTimer = (io, roomId, player, duration = 10) => {
   auctionTimers[roomId] = { timer, timeLeft };
 };
 
-/**
- * Mark a player as sold and update team/leaderboard
- */
 const handlePlayerSold = async (io, roomId, playerId) => {
   const room = await Room.findById(roomId);
   if (!room) return;
@@ -123,21 +107,16 @@ const handlePlayerSold = async (io, roomId, playerId) => {
     .populate('playersBought.player');
 
   if (team) {
-    // Get all players this team has bought so far
     const boughtPlayers = team.playersBought.map(pb => pb.player);
 
-    // Check squad rules (only in points mode)
     if (room.mode === 'points') {
       const check = canBuyPlayer(team, player, boughtPlayers);
       if (!check.allowed) {
-        // Player can't be bought — notify and skip
         io.to(roomId).emit('player:rulefail', {
           player,
           team: team.name,
           reason: check.reason,
         });
-        toast && console.log(`Squad rule blocked: ${check.reason}`);
-        // Still mark as sold but don't add to team — treat as unsold
         player.sold = false;
         await player.save();
         room.currentPlayerIndex++;
@@ -153,7 +132,6 @@ const handlePlayerSold = async (io, roomId, playerId) => {
     team.budget -= room.currentBid;
     team.playersBought.push({ player: player._id, pricePaid: room.currentBid });
 
-    // Recalculate top 12 points for points mode
     if (room.mode === 'points') {
       const allBoughtPlayers = [...boughtPlayers, player];
       team.totalPoints = calculateTop12Points(allBoughtPlayers);
@@ -180,19 +158,16 @@ const handlePlayerSold = async (io, roomId, playerId) => {
   setTimeout(() => moveToNextPlayer(io, roomId), 2000);
 };
 
-/**
- * Register all socket event handlers
- */
 const registerSocketHandlers = (io, socket) => {
-  // Join a room's socket channel
+
+  // ── Join room ──
   socket.on('room:join', async ({ roomId, userId, userName }) => {
     socket.join(roomId);
     socket.to(roomId).emit('user:joined', { userName, message: `${userName} joined the room` });
 
-    // Send current auction state to reconnecting user
     try {
       const room = await Room.findById(roomId);
-      if (room && room.status === 'active') {
+      if (room && (room.status === 'active' || room.status === 'paused')) {
         const players = await Player.find({ room: roomId });
         const currentPlayer = players[room.currentPlayerIndex];
         if (currentPlayer) {
@@ -204,9 +179,12 @@ const registerSocketHandlers = (io, socket) => {
             playerIndex: room.currentPlayerIndex,
             totalPlayers: players.length,
           });
-          // Send remaining timer
           const remaining = auctionTimers[roomId]?.timeLeft || 0;
           socket.emit('auction:timer', { timeLeft: remaining });
+        }
+        // Send pause state to reconnecting user
+        if (room.status === 'paused') {
+          socket.emit('auction:paused', { message: '⏸️ Auction is paused' });
         }
       }
     } catch (e) {
@@ -214,44 +192,157 @@ const registerSocketHandlers = (io, socket) => {
     }
   });
 
-  // Host starts the auction
+  // ── Host starts auction ──
   socket.on('auction:start', async ({ roomId }) => {
     try {
       const room = await Room.findById(roomId);
       if (!room || room.status !== 'active') return;
+      io.to(roomId).emit('auction:started', { message: '🏏 Auction started!' });
       await moveToNextPlayer(io, roomId);
     } catch (e) {
       socket.emit('error', { message: e.message });
     }
   });
 
-  // User places a bid
-  socket.on('bid:place', async ({ roomId, userId, userName, teamId, amount }) => {
+  // ── Host pauses auction ──
+  socket.on('auction:pause', async ({ roomId, userId }) => {
     try {
       const room = await Room.findById(roomId);
+      if (!room) return;
+      if (room.host.toString() !== userId) {
+        return socket.emit('bid:error', { message: 'Only host can pause' });
+      }
+
+      if (auctionTimers[roomId]) {
+        clearInterval(auctionTimers[roomId].timer);
+        delete auctionTimers[roomId];
+      }
+
+      room.status = 'paused';
+      await room.save();
+
+      io.to(roomId).emit('auction:paused', { message: '⏸️ Auction paused by host' });
+    } catch (e) {
+      socket.emit('error', { message: e.message });
+    }
+  });
+
+  // ── Host resumes auction ──
+  socket.on('auction:resume', async ({ roomId, userId }) => {
+    try {
+      const room = await Room.findById(roomId);
+      if (!room) return;
+      if (room.host.toString() !== userId) {
+        return socket.emit('bid:error', { message: 'Only host can resume' });
+      }
+
+      room.status = 'active';
+      await room.save();
+
+      io.to(roomId).emit('auction:resumed', { message: '▶️ Auction resumed!' });
+
+      const players = await Player.find({ room: roomId });
+      const currentPlayer = players[room.currentPlayerIndex];
+      if (currentPlayer && !currentPlayer.sold) {
+        startAuctionTimer(io, roomId, currentPlayer);
+      } else {
+        await moveToNextPlayer(io, roomId);
+      }
+    } catch (e) {
+      socket.emit('error', { message: e.message });
+    }
+  });
+
+  // ── Host ends auction ──
+  socket.on('auction:end', async ({ roomId, userId }) => {
+    try {
+      const room = await Room.findById(roomId);
+      if (!room) return;
+      if (room.host.toString() !== userId) {
+        return socket.emit('bid:error', { message: 'Only host can end auction' });
+      }
+
+      if (auctionTimers[roomId]) {
+        clearInterval(auctionTimers[roomId].timer);
+        delete auctionTimers[roomId];
+      }
+
+      room.status = 'completed';
+      await room.save();
+
+      io.to(roomId).emit('auction:ended', { message: '🏁 Auction ended by host' });
+      await emitLeaderboard(io, roomId);
+    } catch (e) {
+      socket.emit('error', { message: e.message });
+    }
+  });
+
+  // ── Host kicks a player ──
+  socket.on('room:kick', async ({ roomId, userId, kickUserId }) => {
+    try {
+      const room = await Room.findById(roomId);
+      if (!room) return;
+      if (room.host.toString() !== userId) {
+        return socket.emit('bid:error', { message: 'Only host can kick players' });
+      }
+      if (room.host.toString() === kickUserId) {
+        return socket.emit('bid:error', { message: 'Cannot kick yourself!' });
+      }
+
+      room.members = room.members.filter(m => m.toString() !== kickUserId);
+      await room.save();
+
+      io.to(roomId).emit('room:kicked', {
+        kickedUserId: kickUserId,
+        message: 'A player was removed by the host',
+      });
+    } catch (e) {
+      socket.emit('error', { message: e.message });
+    }
+  });
+
+  // ── Place bid ──
+  socket.on('bid:place', async ({ roomId, userId, userName, teamId, amount }) => {
+    try {
+      // Prevent simultaneous bids
+      if (bidLocks[roomId]) {
+        return socket.emit('bid:error', { message: 'Another bid is being processed, try again!' });
+      }
+      bidLocks[roomId] = true;
+
+      const room = await Room.findById(roomId);
       if (!room || room.status !== 'active') {
+        bidLocks[roomId] = false;
         return socket.emit('bid:error', { message: 'Auction is not active' });
       }
-      if (room.currentBidder && room.currentBidder.toString() === userId.toString()) {
-        return socket.emit('bid:error', { message: '⚠️ You are already the highest bidder! Wait for someone else to bid.' });
+
+      // Block bids at 1 second remaining
+      if (auctionTimers[roomId] && auctionTimers[roomId].timeLeft <= 1) {
+        bidLocks[roomId] = false;
+        return socket.emit('bid:error', { message: '⏱️ Bidding closed!' });
       }
-      // Validate bid amount
-      if (amount <= room.currentBid) {
+
+      // Prevent same team bidding twice in a row
+      if (room.currentBidder && room.currentBidder.toString() === userId.toString()) {
+        bidLocks[roomId] = false;
+        return socket.emit('bid:error', { message: '⚠️ You are already the highest bidder!' });
+      }
+
+      // First bid can be at base price, subsequent must be higher
+      if (room.currentBidder && amount <= room.currentBid) {
+        bidLocks[roomId] = false;
         return socket.emit('bid:error', {
-          message: `Bid must be higher than current bid of ₹${room.currentBid}L`,
+          message: `Bid must be higher than ₹${room.currentBid}L`,
         });
       }
 
       // Check team budget
       const team = await Team.findOne({ owner: userId, room: roomId });
       if (!team || team.budget < amount) {
+        bidLocks[roomId] = false;
         return socket.emit('bid:error', { message: 'Insufficient budget!' });
       }
-      // In bid:place handler
-      if (auctionTimers[roomId] && auctionTimers[roomId].timeLeft <= 1) {
-        return socket.emit('bid:error', { message: '⏱️ Bidding closed!' });
-      }
-      // Update current bid in room
+
       room.currentBid = amount;
       room.currentBidder = userId;
       room.currentBidderName = userName;
@@ -260,7 +351,6 @@ const registerSocketHandlers = (io, socket) => {
       const players = await Player.find({ room: roomId });
       const currentPlayer = players[room.currentPlayerIndex];
 
-      // Record bid in DB
       await Bid.create({
         room: roomId,
         player: currentPlayer._id,
@@ -270,7 +360,6 @@ const registerSocketHandlers = (io, socket) => {
         amount,
       });
 
-      // Broadcast updated bid to all in room
       io.to(roomId).emit('bid:update', {
         amount,
         bidderName: userName,
@@ -278,28 +367,28 @@ const registerSocketHandlers = (io, socket) => {
         player: currentPlayer.name,
       });
 
-      // Reset timer on new bid
+      // Reset timer to 5 seconds after each bid
       if (auctionTimers[roomId]) {
         clearInterval(auctionTimers[roomId].timer);
         delete auctionTimers[roomId];
       }
-      startAuctionTimer(io, roomId, currentPlayer);
+      startAuctionTimer(io, roomId, currentPlayer, 5);
+
     } catch (e) {
       socket.emit('bid:error', { message: e.message });
+    } finally {
+      bidLocks[roomId] = false;
     }
   });
 
-  // Chat message
+  // ── Chat ──
   socket.on('chat:message', async ({ roomId, userId, userName, text }) => {
     if (!text?.trim()) return;
-
     try {
       const room = await Room.findById(roomId);
       if (!room) return;
 
       const message = { user: userName, userId, text: text.trim(), time: new Date() };
-
-      // Keep only last 10 messages
       room.messages.push(message);
       if (room.messages.length > 10) room.messages.shift();
       await room.save();
@@ -310,10 +399,12 @@ const registerSocketHandlers = (io, socket) => {
     }
   });
 
-  // Team update broadcast
+  // ── Team update ──
   socket.on('team:update', async ({ roomId }) => {
     try {
-      const teams = await Team.find({ room: roomId }).populate('owner', 'name').populate('playersBought.player');
+      const teams = await Team.find({ room: roomId })
+        .populate('owner', 'name')
+        .populate('playersBought.player');
       io.to(roomId).emit('team:update', { teams });
     } catch (e) {
       console.error('Team update error:', e.message);
