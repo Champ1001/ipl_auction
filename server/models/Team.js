@@ -7,7 +7,7 @@ const teamSchema = new mongoose.Schema(
     room: { type: mongoose.Schema.Types.ObjectId, ref: 'Room', required: true },
 
     // Starting budget in crores (e.g., 100 crores)
-    budget: { type: Number, default: 10000 }, // stored in lakhs = 100 crores
+    budget: { type: Number, default: 12500 }, // stored in lakhs = 100 crores
 
     // Players bought in auction
     playersBought: [
