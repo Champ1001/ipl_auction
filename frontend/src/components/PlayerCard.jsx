@@ -43,15 +43,11 @@ export default function PlayerCard({ player, currentBid, currentBidderName, time
         )}
       </div>
 
-      {/* Stats grid */}
-      <div className="grid grid-cols-3 gap-3 my-4">
+      {/* Stats grid — NO points */}
+      <div className="grid grid-cols-2 gap-3 my-4">
         <div className="bg-gray-900/60 rounded-xl p-3 text-center">
           <div className="text-xs text-gray-500 mb-1">Base Price</div>
           <div className="font-bold text-white">₹{player.basePrice}L</div>
-        </div>
-        <div className="bg-ipl-gold/10 border border-ipl-gold/20 rounded-xl p-3 text-center">
-          <div className="text-xs text-gray-500 mb-1">Points</div>
-          <div className="font-bold text-ipl-gold text-lg">{player.points}</div>
         </div>
         <div className="bg-gray-900/60 rounded-xl p-3 text-center">
           <div className="text-xs text-gray-500 mb-1">Current Bid</div>

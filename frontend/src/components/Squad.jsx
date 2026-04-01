@@ -20,7 +20,7 @@ export default function Squad({ team, isMyTeam }) {
         </div>
       </div>
 
-      {/* Players */}
+      {/* Players — no points shown */}
       {(!team.playersBought || team.playersBought.length === 0) ? (
         <div className="card p-4 text-center text-gray-500 text-sm">
           No players yet 🎯
@@ -35,14 +35,14 @@ export default function Squad({ team, isMyTeam }) {
               </div>
               <div className="text-right">
                 <div className="text-green-400 font-bold text-sm">₹{pb.pricePaid}L</div>
-                <div className="text-xs text-ipl-gold">{pb.player?.points} pts</div>
+                {/* NO individual points shown */}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Totals */}
+      {/* Totals — only show total points, not per player */}
       {team.playersBought?.length > 0 && (
         <div className="card p-4 grid grid-cols-2 gap-4 border-ipl-gold/20">
           <div className="text-center">
