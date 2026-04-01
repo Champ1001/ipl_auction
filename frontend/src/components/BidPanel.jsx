@@ -19,13 +19,15 @@ const formatBid = (amount) => {
   return `₹${amount}L`
 }
 
-export default function BidPanel({ currentBid, myBudget, onBid, disabled, timeLeft, basePrice }) {
+export default function BidPanel({ currentBid, myBudget, onBid, disabled, timeLeft, basePrice, currentBidderName }) {
   const [error, setError] = useState('')
 
   const bidClosed = disabled || timeLeft <= 1
 
-  const increment = getIncrement(currentBid)
-  const nextBid   = currentBid + increment
+const increment = getIncrement(currentBid)
+// If no one has bid yet (currentBidder is null), first bid = base price
+// Otherwise next bid = current bid + increment
+const nextBid = currentBidderName ? currentBid + increment : currentBid
 
   const placeBid = (amount) => {
     setError('')

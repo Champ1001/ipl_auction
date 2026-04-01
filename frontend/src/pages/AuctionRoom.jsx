@@ -423,6 +423,7 @@ export default function AuctionRoom() {
                   disabled={!canBid}
                   timeLeft={timeLeft}
                   basePrice={currentPlayer?.basePrice}
+                  currentBidderName={currentBidderName}
                 />
               )}
             </div>
